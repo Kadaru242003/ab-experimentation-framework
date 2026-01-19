@@ -23,13 +23,11 @@ plt.xlabel("Date")
 plt.ylabel("Conversion Rate")
 plt.legend()
 
-# ✅ SAVE FIRST
 plt.savefig(
     "../reports/conversion_over_time.png",
     dpi=200,
     bbox_inches="tight"
 )
 
-# ✅ THEN SHOW
 plt.show()
 
