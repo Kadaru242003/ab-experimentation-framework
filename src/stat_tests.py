@@ -12,7 +12,7 @@ def conversion_z_test(control, treatment):
     se = np.sqrt(p_pool * (1 - p_pool) * (1/n1 + 1/n2))
 
     z = (p2 - p1) / se
-    p_value = 1 - norm.cdf(z)
+    p_value = 2 * norm.sf(abs(z))  # two-sided
 
     return {
         "z_stat": z,
