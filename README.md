@@ -33,7 +33,7 @@ The experimentation framework consists of the following stages:
 - Test duration from daily traffic and allocation (see [Power Analysis](#power-analysis))
 
 ### 1. Experiment Validation
-- Detects Sample Ratio Mismatch (SRM) with a chi-square goodness-of-fit test against the intended 50/50 split (flagged at p < 0.05)
+- Detects Sample Ratio Mismatch (SRM) with a chi-square goodness-of-fit test against the intended 50/50 split, flagged at p < 0.001 by default (`check_srm(df, threshold=...)`). The strict threshold is the common industry choice: the check runs on every experiment, so it should rarely raise false alarms, while real assignment bugs give tiny p-values
 - If SRM is flagged, the decision is `INVALID EXPERIMENT` no matter how significant the metric results are
 
 ### 2. Metric Computation
@@ -48,6 +48,7 @@ The experimentation framework consists of the following stages:
 
 ### 4. Bias & Robustness Checks
 - Early stopping (peeking): re-runs the conversion test every 5,000 users and reports the first look where p < 0.05, showing how early a team that peeks would have stopped (here after 10,000 users, well before the planned sample size)
+- A/A simulation (`aa_simulation.py`): 2,000 experiments with no true effect, measuring how much peeking inflates the false positive rate and how Bonferroni and O'Brien-Fleming corrections bring it back (see [Peeking: A/A Simulation](#peeking-aa-simulation))
 - Novelty effect analysis using daily conversion trends by group
 - Decision rules for conflicting metrics (conversion up but revenue down, or latency up)
 
@@ -81,7 +82,25 @@ The decision engine flags scenarios where results should not be acted upon:
 - Guardrail metrics (latency, revenue) move the wrong way
 - Metrics conflict in a way that increases business risk
 
-Results also should not be trusted when the experiment is underpowered or was stopped early after peeking. The decision engine does not check these automatically; use the power analysis module to fix the sample size and duration before launch, and analyze only once that sample is reached.
+Results also should not be trusted when the experiment is underpowered or was stopped early after peeking. The decision engine does not check these automatically; use the power analysis module to fix the sample size and duration before launch, and analyze only once that sample is reached (or use a sequential boundary, as in the A/A simulation below).
+
+---
+
+## Peeking: A/A Simulation
+`src/aa_simulation.py` runs 2,000 simulated experiments in which both groups convert at 10%, so any "significant" result is a false positive. Each experiment has 10,000 users per group, checked every 1,000 users per group (10 looks), with a fixed seed (42). Every look uses the same pooled two-sided z-test as the main pipeline.
+
+| Method | Rule | False positive rate | 95% CI (Wilson) |
+|---|---|---|---|
+| Single test at planned sample size | one test at 10,000 per group, p < 0.05 | **5.15%** (103 / 2,000) | 4.3% – 6.2% |
+| Peeking | stop at the first look with p < 0.05 | **19.05%** (381 / 2,000) | 17.4% – 20.8% |
+| Bonferroni | stop at the first look with p < 0.05 / 10 | **2.20%** (44 / 2,000) | 1.6% – 2.9% |
+| O'Brien-Fleming boundary | stop at look k if \|z\| ≥ 2.087 · √(10 / k) | **5.10%** (102 / 2,000) | 4.2% – 6.2% |
+
+Checking ten times and stopping at the first significant result nearly quadruples the false positive rate, from about 5% to about 19%. Bonferroni fixes this but overcorrects. The O'Brien-Fleming boundary is very strict at early looks (|z| ≥ 6.6 at the first look) and close to 1.96 at the last one. It keeps the overall rate at 5% while still allowing an early stop for a large effect. The boundary constant is solved numerically and matches published tables (Jennison & Turnbull, *Group Sequential Methods*, Table 2.3).
+
+```bash
+cd src && python aa_simulation.py
+```
 
 ---
 
@@ -149,12 +168,15 @@ src/
   metrics.py          # per-group conversion, revenue, latency
   stat_tests.py       # two-proportion z-test, Welch's t-test
   decision.py         # ship / continue / rollback rules
-  peeking_bias.py     # early-stopping simulation
+  peeking_bias.py     # early-stopping simulation on the experiment data
+  aa_simulation.py    # A/A simulation: peeking false positive rates and corrections
   time_analysis.py    # conversion over time (novelty effect)
   visualize.py        # reports/conversion_over_time.png
   power.py            # sample size, power, test duration
   test_*.py           # ad-hoc scripts that print results on the generated data
 tests/                # pytest suite (run in CI on every push)
+notebooks/
+  experiment_walkthrough.ipynb  # runnable end-to-end walkthrough (executed in CI)
 reports/
 ```
 
@@ -179,7 +201,6 @@ cd .. && pytest
 
 ## Next Steps
 Potential extensions include:
-- Sequential testing (e.g. alpha spending) so results can be checked early without inflating false positives
-- A/A simulations that measure how much peeking inflates the false-positive rate
+- Apply a sequential boundary (e.g. O'Brien-Fleming) inside the decision engine so live results can be checked early without inflating false positives
 - Multi-metric optimization strategies
 - Bayesian experimentation approaches

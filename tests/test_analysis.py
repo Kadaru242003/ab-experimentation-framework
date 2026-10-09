@@ -42,6 +42,21 @@ def test_srm_small_imbalance_within_noise():
     assert not result["srm_detected"]
 
 
+def test_srm_default_threshold_is_strict():
+    # 50,500 / 49,500: chi2 = 2 * 500^2 / 50000 = 10, p ~ 0.0016
+    df = make_split(50_500, 49_500)
+    assert 0.001 < check_srm(df)["p_value"] < 0.05
+    assert not check_srm(df)["srm_detected"]
+    assert check_srm(df, threshold=0.05)["srm_detected"]
+
+
+def test_generated_split_passes_srm():
+    # Counts from the committed simulation (seed 42): p ~ 0.22.
+    result = check_srm(make_split(149_666, 150_334))
+    assert result["p_value"] == pytest.approx(0.2226, abs=1e-4)
+    assert not result["srm_detected"]
+
+
 # --- Two-proportion z-test ---------------------------------------------------
 
 @pytest.mark.parametrize("x1, n1, x2, n2", [
